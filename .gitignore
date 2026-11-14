@@ -1,0 +1,13 @@
+# Preferencias y claves locales
+gemini-config.json*
+gemini-credentials.dat*
+.env
+.env.*
+*.local.json
+
+# Respaldos y temporales
+Respaldos/
+*.respaldo-*
+*.tmp
+*.bak
+work/
