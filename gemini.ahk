@@ -9,6 +9,7 @@ global Cfg := CargarConfiguracion(), Claves := CargarClaves(), DocContexto := ""
 global GuiAjustes := 0, Campos := 0, GuiIcono := 0, GuiRespuesta := 0
 global RespuestaVisible := false, UltimaRespuesta := "", UltimaX := 0, UltimaY := 0
 global Solicitud := 0, Cerrando := false, ColoresElegidos := Buffer(64, 0)
+global UltimoEstado := "Listo. Selecciona un proveedor y guarda tus preferencias."
 OnExit(CerrarPrograma)
 ConfigurarBandejaGemini()
 if (Cfg["RecordarContexto"] && Cfg["Contexto"] != "" && FileExist(Cfg["Contexto"])) {
@@ -38,7 +39,7 @@ Predeterminados() {
     instrucciones .= "`n2. Verdadero o falso: responde solo V o F."
     instrucciones .= "`n3. Relacionar columnas: responde las parejas correctas, una por linea."
     instrucciones .= "`n4. Pregunta abierta: responde de forma completa, breve y directa."
-    return Map("Proveedor", "Gemini", "ModeloGemini", "gemini-flash-latest", "ModeloOpenAI", "gpt-4.1-mini",
+    return Map("Proveedor", "Gemini", "ModeloGemini", "gemini-3.5-flash-lite", "ModeloOpenAI", "gpt-4.1-mini",
         "Fuente", 8, "Ancho", 400, "Color", "F2F2F2", "Opacidad", 100, "Duracion", 0,
         "Copiar", 1, "Progreso", 1, "IniciarMinimizado", 1, "Contexto", "", "RecordarContexto", 0, "Instrucciones", instrucciones)
 }
@@ -165,7 +166,7 @@ AlternarConfiguracion() {
 }
 
 AbrirConfiguracion() {
-    global GuiAjustes, Campos, GuiIcono, Cfg, Claves, Cerrando
+    global GuiAjustes, Campos, GuiIcono, Cfg, Claves, Cerrando, UltimoEstado
     if !IsSet(Cerrando) || Cerrando
         return
     GuiIcono.Hide()
@@ -199,7 +200,8 @@ AbrirConfiguracion() {
     g.AddButton("x40 y458 w150 h30", "Probar conexion").OnEvent("Click", (*) => ProbarConexion())
     g.AddButton("x208 y458 w110 h30", "Cancelar").OnEvent("Click", (*) => CancelarSolicitud())
     g.AddText("x332 y458 w243 h43", "Valida clave y modelo sin generar texto.")
-    g.AddText("x40 y509 w535 h26", "Las claves se guardan cifradas para tu usuario de Windows.")
+    g.AddButton("x40 y500 w170 h28", "Probar respuesta").OnEvent("Click", (*) => ProbarRespuesta())
+    g.AddText("x228 y500 w347 h35", "Las claves se guardan cifradas para tu usuario de Windows.")
     tabs.UseTab(2)
     g.AddText("x40 y130 w180 h24", "Tamano de letra (pt)")
     camposNuevos["Fuente"] := g.AddEdit("x250 y126 w90 Number", Cfg["Fuente"])
@@ -238,7 +240,7 @@ AbrirConfiguracion() {
     g.AddText("x42 y134 w520 h245", "Ctrl + clic izquierdo: consultar el texto seleccionado.`n`nCtrl + Espacio: ocultar o recuperar la ultima respuesta.`n`nCtrl + Alt + G: abrir configuracion.`n`nCtrl + Alt + J: minimizar / expandir ajustes.`n`nCtrl + Alt + F: cargar un archivo de contexto.")
     g.AddText("x42 y400 w520 h95", "Minimizar los ajustes deja un icono IA; la consulta sigue funcionando.`n`nLas respuestas no abren esta ventana y no reciben el foco. Los atajos evitan los del mostrador de teclas.")
     tabs.UseTab()
-    camposNuevos["Estado"] := g.AddText("x24 y565 w570 h36", "Listo. Selecciona un proveedor y guarda tus preferencias.")
+    camposNuevos["Estado"] := g.AddText("x24 y565 w570 h36", UltimoEstado)
     g.AddButton("x24 y609 w150 h32", "Minimizar").OnEvent("Click", MinimizarConfiguracion)
     g.AddButton("x340 y609 w126 h32 Default", "Guardar").OnEvent("Click", (*) => GuardarFormulario())
     g.AddButton("x478 y609 w116 h32", "Cerrar ajustes").OnEvent("Click", (*) => DescartarConfiguracion())
@@ -332,7 +334,10 @@ GuardarFormulario() {
     }
 }
 EstadoAjustes(texto) {
-    global Campos, Cerrando
+    global Campos, Cerrando, UltimoEstado
+    if !IsSet(Cerrando) || Cerrando
+        return
+    UltimoEstado := texto
     if IsSet(Cerrando) && !Cerrando && IsSet(Campos) && IsObject(Campos)
         Campos["Estado"].Text := texto
 }
@@ -404,7 +409,15 @@ ProbarConexion() {
         EstadoAjustes(err.Message)
     }
 }
-IniciarSolicitud(prompt, c, claves, prueba := false) {
+ProbarRespuesta() {
+    try {
+        c := LeerFormulario()
+        IniciarSolicitud("Responde unicamente OK.", c, ClavesFormulario(), false, true)
+    } catch as err {
+        EstadoAjustes(err.Message)
+    }
+}
+IniciarSolicitud(prompt, c, claves, prueba := false, pruebaTexto := false) {
     global Solicitud
     if IsObject(Solicitud) {
         EstadoAjustes("Hay una consulta en curso. Espera a que termine.")
@@ -412,7 +425,7 @@ IniciarSolicitud(prompt, c, claves, prueba := false) {
     }
     proveedor := c["Proveedor"], clave := claves[proveedor]
     if clave = "" {
-        if prueba
+        if (prueba || pruebaTexto)
             EstadoAjustes("Introduce la clave API del proveedor seleccionado.")
         else
             AvisoSutil("Falta la clave API. Abre ajustes con Ctrl+Alt+G.")
@@ -439,22 +452,20 @@ IniciarSolicitud(prompt, c, claves, prueba := false) {
         http.SetRequestHeader("Content-Type", "application/json; charset=utf-8")
         http.SetRequestHeader(proveedor = "Gemini" ? "x-goog-api-key" : "Authorization", proveedor = "Gemini" ? clave : "Bearer " clave)
         Solicitud := {http: http, proveedor: proveedor, prueba: prueba, inicio: A_TickCount,
-            estilo: c.Clone(), clave: clave, ultimoEstado: -1}
+            estilo: c.Clone(), clave: clave, ultimoEstado: -1, pruebaTexto: pruebaTexto}
         if prueba
             http.Send()
         else
             http.Send(cuerpo)
         SetTimer(RevisarSolicitud, 100)
-        if prueba
-            EstadoAjustes("Probando conexion con " proveedor "...")
-        else if c["Progreso"]
+        EstadoAjustes((prueba ? "Validando conexion con " : "Generando respuesta con ") proveedor "...")
+        if (!prueba && !pruebaTexto && c["Progreso"])
             AvisoSutil("...", 5000)
     } catch as err {
         Solicitud := 0
         texto := DescribirErrorRed(err, clave)
-        if prueba
-            EstadoAjustes(texto)
-        else
+        EstadoAjustes("No se pudo iniciar: " texto)
+        if (!prueba && !pruebaTexto)
             AvisoSutil(texto)
     }
 }
@@ -471,9 +482,9 @@ RevisarSolicitud() {
         }
         ; Una espera de cero devuelve false mientras la respuesta sigue pendiente.
         if !req.http.WaitForResponse(0) {
-            if req.prueba && segundos != req.ultimoEstado {
+            if segundos != req.ultimoEstado {
                 req.ultimoEstado := segundos
-                EstadoAjustes("Esperando a " req.proveedor "... " segundos " s. Puedes cancelar la prueba.")
+                EstadoAjustes((req.prueba ? "Validando " : "Generando con ") req.proveedor "... " segundos " s. Puedes cancelar desde ajustes.")
             }
             return
         }
@@ -497,7 +508,12 @@ RevisarSolicitud() {
         }
         respuesta := ExtraerRespuesta(datos, req.proveedor)
         SetTimer(RevisarSolicitud, 0), Solicitud := 0
+        if req.pruebaTexto {
+            EstadoAjustes("Generacion correcta con " req.proveedor ": " SubStr(respuesta, 1, 100))
+            return
+        }
         UltimaRespuesta := respuesta
+        EstadoAjustes("Respuesta recibida de " req.proveedor " (" StrLen(respuesta) " caracteres). Ctrl+Espacio para ocultar o recuperar.")
         MouseGetPos(&UltimaX, &UltimaY)
         if req.estilo["Copiar"]
             A_Clipboard := respuesta
@@ -505,9 +521,8 @@ RevisarSolicitud() {
     } catch as err {
         SetTimer(RevisarSolicitud, 0), Solicitud := 0
         mensaje := DescribirErrorRed(err, req.clave)
-        if req.prueba
-            EstadoAjustes("Fallo de conexion: " mensaje)
-        else
+        EstadoAjustes("Fallo de " req.proveedor ": " mensaje)
+        if (!req.prueba && !req.pruebaTexto)
             AvisoSutil(mensaje, 6000)
     }
 }
@@ -747,9 +762,8 @@ CancelarSolicitud() {
     SetTimer(RevisarSolicitud, 0)
     Solicitud := 0
     try req.http.Abort()
-    if req.prueba
-        EstadoAjustes("Prueba cancelada. Puedes revisar la conexion y volver a probar.")
-    else
+    EstadoAjustes("Solicitud cancelada. Puedes revisar los ajustes y volver a probar.")
+    if (!req.prueba && !req.pruebaTexto)
         AvisoSutil("Consulta cancelada.")
 }
 

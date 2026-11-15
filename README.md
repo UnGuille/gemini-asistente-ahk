@@ -10,7 +10,8 @@ La interfaz visual está dedicada a la configuración. Al minimizarla queda un p
 2. Descarga `gemini.ahk` en una carpeta donde puedas guardar archivos y ejecútalo.
 3. En **Conexión**, elige **Gemini** u **OpenAI**, introduce tu propia clave y revisa el modelo.
 4. Pulsa **Guardar**. Puedes usar **Probar conexión** para validar la clave y el acceso al modelo mediante una consulta de metadatos, sin generar texto.
-5. Minimiza la configuración con **−** en la esquina superior derecha o con el botón **Minimizar**. Haz clic en el icono **IA** para volver a abrirla.
+5. Usa **Probar respuesta** para enviar una petición mínima de generación y comprobar que llega texto. Esta prueba usa la API de generación y su cuota. No envía tu contexto ni tus instrucciones personales.
+6. Minimiza la configuración con **−** en la esquina superior derecha o con el botón **Minimizar**. Haz clic en el icono **IA** para volver a abrirla.
 
 Cada proveedor usa su propia clave y el acceso que tenga habilitado esa cuenta. La prueba de conexión consulta metadatos; las consultas de texto sí generan respuestas. La prueba no confirma la cuota de generación.
 
@@ -53,7 +54,7 @@ El `.gitignore` excluye configuración personal, credenciales, archivos temporal
 
 ## API y modelos
 
-- Gemini utiliza [generateContent](https://ai.google.dev/api/generate-content), con `x-goog-api-key` y el modelo inicial `gemini-flash-latest`.
+- Gemini utiliza [generateContent](https://ai.google.dev/api/generate-content), con `x-goog-api-key` y el modelo inicial `gemini-3.5-flash-lite`.
 - OpenAI utiliza la [Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create), con `Authorization: Bearer`, `store: false` y el modelo inicial [gpt-4.1-mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini).
 
 El nombre del modelo es editable. Los errores de conexión, autenticación o cuota se muestran brevemente sin volcar las claves ni la respuesta técnica completa.
@@ -85,3 +86,10 @@ Las consultas normales siguen siendo asíncronas. El programa usa `VT_BOOL` expl
 - **HTTP 5xx:** el proveedor devolvió un error temporal.
 
 El diagnóstico conserva el código HTTP y un mensaje breve del proveedor, sin mostrar las claves. No cambia automáticamente el modelo ni la facturación.
+
+
+### Conexión correcta, pero no llega texto
+
+**Probar conexión** y **Probar respuesta** comprueban cosas distintas. La primera valida acceso al modelo; la segunda genera una respuesta breve sin enviar tu contexto. Los errores y el último estado de consulta permanecen en la parte inferior de Ajustes aunque el panel esté minimizado o cerrado. Las respuestas de Ctrl+clic siguen siendo texto flotante.
+
+Un **HTTP 503** con un aviso de alta demanda indica saturación del modelo. Puedes elegir otro modelo disponible desde Conexión. El modelo inicial es `gemini-3.5-flash-lite`; no se cambia automáticamente a otro proveedor ni se envían tus preguntas a OpenAI cuando tienes Gemini seleccionado.
