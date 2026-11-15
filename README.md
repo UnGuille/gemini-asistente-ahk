@@ -30,7 +30,8 @@ La posición se guarda automáticamente y se conserva al minimizar de nuevo o re
 - **Conexión:** proveedor activo, claves independientes de Gemini y OpenAI, modelos editables, claves ocultas por defecto y prueba de clave/modelo sin generación de texto.
 - **Respuesta:** tamaño de letra de 6 a 24 pt, ancho de 240 a 800, color con selector de Windows o código HEX, opacidad del 20 al 100 % y duración de 0 a 120 segundos. Con duración `0`, la respuesta permanece hasta ocultarla manualmente.
 - **Vista previa:** muestra un texto de ejemplo durante tres segundos, sin llamar a ninguna API. Restablecer apariencia carga los valores predeterminados en el formulario; pulsa Guardar para aplicarlos.
-- **Contexto:** archivo `.txt` o `.md` opcional, carga al iniciar e instrucciones editables para el asistente. El contexto se envía al proveedor elegido junto con la consulta.
+- **Contextos:** biblioteca de textos con nombre, editor integrado, importación de varios `.txt` o `.md` y casillas para combinar sólo los que elijas.
+- **Instrucciones:** pestaña independiente para editar las instrucciones generales del asistente.
 - **Atajos:** recordatorio de controles. Se eligieron atajos de configuración diferentes a los del mostrador de teclas.
 
 Puedes activar o desactivar la copia automática de la respuesta al portapapeles, el indicador `...` y el inicio con los ajustes minimizados.
@@ -47,6 +48,22 @@ En **Configuración → Respuesta**, desactiva **La respuesta sigue al cursor** 
 
 **Ctrl + Espacio** oculta o recupera la respuesta respetando el modo elegido. La vista previa también permite comprobar el seguimiento. Al ocultar la respuesta o cerrar el programa se detiene el temporizador de movimiento.
 
+## Crear, editar y combinar contextos
+
+Abre **Configuración → Contextos**:
+
+1. Pulsa **Nuevo**, escribe un nombre y añade el texto directamente en el editor.
+2. También puedes usar **Importar...** para elegir varios archivos `.txt` o `.md` a la vez (Ctrl o Shift en el selector de archivos).
+3. Selecciona un contexto de la lista para editarlo. Cambiar de selección conserva lo escrito en el borrador.
+4. **Marca las casillas de los contextos que quieras utilizar**. Puedes combinar varios; se enviarán separados por nombre y en el orden de la lista. Los desmarcados y los que no tienen texto quedan excluidos.
+5. Pulsa **Guardar** para aplicar y conservar los cambios. Las consultas posteriores usarán sólo los contextos activos guardados.
+
+**Quitar de la lista** retira un contexto del borrador; pulsa Guardar para aplicar la retirada. **Cerrar ajustes** descarta los cambios pendientes. Minimizar conserva el borrador abierto, sin aplicarlo.
+
+Las instrucciones generales están en la pestaña **Instrucciones**. El archivo de contexto de versiones anteriores se incorpora a la biblioteca para poder editarlo; se conserva su activación al inicio anterior. Vaciar y guardar la biblioteca no vuelve a importar ese archivo.
+
+Los contextos se guardan dentro de `gemini-config.json`, excluido de Git. Sólo se envían al proveedor al consultar con Ctrl+clic. **Probar conexión** y **Probar respuesta** no envían tus contextos.
+
 ## Atajos
 
 | Atajo | Acción |
@@ -55,16 +72,16 @@ En **Configuración → Respuesta**, desactiva **La respuesta sigue al cursor** 
 | `Ctrl + Espacio` | Ocultar / mostrar la última respuesta |
 | `Ctrl + Alt + G` | Abrir configuración |
 | `Ctrl + Alt + J` | Minimizar / expandir configuración |
-| `Ctrl + Alt + F` | Cargar un archivo de contexto para esta sesión |
+| `Ctrl + Alt + F` | Abrir Contextos e importar uno o varios archivos |
 
-Para conservar la ruta de contexto entre sesiones, guarda la configuración y activa su carga al iniciar. El antiguo `Ctrl + Alt + L` se reemplazó por `Ctrl + Alt + F` para no interferir con el bloqueo del mostrador de teclas.
+Para conservar los contextos, sus textos y las casillas activas entre sesiones, pulsa **Guardar**. Los archivos importados se copian a la biblioteca; editar un contexto no modifica su archivo original. El antiguo `Ctrl + Alt + L` se reemplazó por `Ctrl + Alt + F` para no interferir con el bloqueo del mostrador de teclas.
 
 Cuando estás escribiendo en la configuración, `Ctrl + clic` mantiene su función normal y no envía consultas. Las respuestas flotantes permiten hacer clic a través de ellas. La última respuesta se conserva únicamente durante la sesión.
 
 ## Archivos locales y claves
 
 - `gemini.ahk`: código del programa, sin claves incrustadas.
-- `gemini-config.json`: preferencias personales.
+- `gemini-config.json`: preferencias personales y biblioteca de contextos, con nombres, textos y estado activo/inactivo.
 - `gemini-credentials.dat`: claves cifradas mediante **Windows DPAPI**, asociadas al usuario de Windows. No es un archivo portable de claves entre equipos o cuentas.
 - También se admiten `GEMINI_API_KEY` y `OPENAI_API_KEY` como valores iniciales si no hay una clave guardada para ese proveedor.
 

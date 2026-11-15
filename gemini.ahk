@@ -7,6 +7,7 @@ CoordMode "Mouse", "Screen"
 global RutaConfig := A_ScriptDir "\gemini-config.json", RutaClaves := A_ScriptDir "\gemini-credentials.dat"
 global Cfg := CargarConfiguracion(), Claves := CargarClaves(), DocContexto := ""
 global GuiAjustes := 0, Campos := 0, GuiIcono := 0, GuiRespuesta := 0
+global BorradorContextos := [], IndiceContexto := 0, CargandoContextos := false
 global HwndIconoGemini := 0, IconoAlfaActual := 0
 global RespuestaVisible := false, UltimaRespuesta := "", UltimaX := 0, UltimaY := 0
 global Solicitud := 0, Cerrando := false, ColoresElegidos := Buffer(64, 0)
@@ -15,9 +16,6 @@ global CursorRespuestaX := "", CursorRespuestaY := ""
 global UltimoEstado := "Listo. Selecciona un proveedor y guarda tus preferencias."
 OnExit(CerrarPrograma)
 ConfigurarBandejaGemini()
-if (Cfg["RecordarContexto"] && Cfg["Contexto"] != "" && FileExist(Cfg["Contexto"])) {
-    try DocContexto := FileRead(Cfg["Contexto"], "UTF-8")
-}
 CrearIconoGemini()
 if (!FileExist(RutaConfig) || !Cfg["IniciarMinimizado"])
     AbrirConfiguracion()
@@ -44,17 +42,21 @@ Predeterminados() {
     instrucciones .= "`n4. Pregunta abierta: responde de forma completa, breve y directa."
     return Map("Proveedor", "Gemini", "ModeloGemini", "gemini-3.5-flash-lite", "ModeloOpenAI", "gpt-4.1-mini",
         "Fuente", 8, "Ancho", 400, "Color", "F2F2F2", "Opacidad", 100, "Duracion", 0,
-        "IconoX", "", "IconoY", "", "SeguirMouse", 1, "Copiar", 1, "Progreso", 1, "IniciarMinimizado", 1, "Contexto", "", "RecordarContexto", 0, "Instrucciones", instrucciones)
+        "IconoX", "", "IconoY", "", "SeguirMouse", 1, "Copiar", 1, "Progreso", 1, "IniciarMinimizado", 1, "Contexto", "", "RecordarContexto", 0, "Contextos", [], "Instrucciones", instrucciones)
 }
 CargarConfiguracion() {
     global RutaConfig
-    c := Predeterminados()
+    c := Predeterminados(), contextosGuardados := false
     if FileExist(RutaConfig) {
         try {
             leido := JsonLeer(FileRead(RutaConfig, "UTF-8"))
             for k, defecto in c
-                if leido.Has(k) && !IsObject(leido[k])
+                if leido.Has(k) && !IsObject(leido[k]) && k != "Contextos"
                     c[k] := leido[k]
+            if leido.Has("Contextos") && leido["Contextos"] is Array {
+                c["Contextos"] := CopiarContextos(leido["Contextos"])
+                contextosGuardados := true
+            }
         }
     }
     for k, rango in Map("Fuente", [6,24], "Ancho", [240,800], "Opacidad", [20,100], "Duracion", [0,120]) {
@@ -71,6 +73,14 @@ CargarConfiguracion() {
     for k in ["ModeloGemini", "ModeloOpenAI"]
         if !RegExMatch(c[k], "^[a-zA-Z0-9._-]+$")
             c[k] := Predeterminados()[k]
+    ; Migrar el archivo anterior una sola vez, sin modificar el original.
+    if (!contextosGuardados && c["Contexto"] != "" && FileExist(c["Contexto"])) {
+        try {
+            texto := FileRead(c["Contexto"], "UTF-8")
+            SplitPath(c["Contexto"], &nombre)
+            c["Contextos"].Push(Map("nombre", nombre, "texto", texto, "activo", c["RecordarContexto"]))
+        }
+    }
     return c
 }
 CargarClaves() {
@@ -259,6 +269,7 @@ AlternarConfiguracion() {
 
 AbrirConfiguracion() {
     global GuiAjustes, Campos, GuiIcono, Cfg, Claves, Cerrando, UltimoEstado
+    global BorradorContextos, IndiceContexto, CargandoContextos
     if !IsSet(Cerrando) || Cerrando
         return
     SetTimer(AspectoIconoGemini, 0)
@@ -267,14 +278,16 @@ AbrirConfiguracion() {
         GuiAjustes.Show("Restore")
         return
     }
+    BorradorContextos := CopiarContextos(Cfg["Contextos"])
+    IndiceContexto := 0
     g := Gui("+AlwaysOnTop +ToolWindow +MinimizeBox", "Configuracion · asistente Gemini / OpenAI")
     GuiAjustes := g
     g.BackColor := "F4F6FA", g.SetFont("s10", "Segoe UI")
     g.AddText("x24 y18 w500 h24", "ASISTENTE DE SELECCION")
     g.AddText("x24 y45 w510 h25", "Configura la conexion y la apariencia del texto flotante.")
     g.AddButton("x554 y17 w40 h30", "−").OnEvent("Click", MinimizarConfiguracion)
-    tabs := g.AddTab3("x18 y86 w584 h464", ["Conexion", "Respuesta", "Contexto", "Atajos"])
-    camposNuevos := Map()
+    tabs := g.AddTab3("x18 y86 w584 h464", ["Conexion", "Respuesta", "Contextos", "Instrucciones", "Atajos"])
+    camposNuevos := Map("Pestanas", tabs)
     tabs.UseTab(1)
     g.AddText("x40 y127 w130 h24", "Proveedor activo")
     camposNuevos["Proveedor"] := g.AddDropDownList("x190 y123 w220", ["Gemini", "OpenAI"])
@@ -320,17 +333,25 @@ AbrirConfiguracion() {
     g.AddButton("x40 y472 w160 h30", "Vista previa").OnEvent("Click", (*) => VistaPreviaRespuesta())
     g.AddButton("x215 y472 w190 h30", "Restablecer apariencia").OnEvent("Click", (*) => RestablecerApariencia())
     tabs.UseTab(3)
-    g.AddText("x40 y129 w535 h25", "Archivo de contexto opcional (.txt o .md)")
-    camposNuevos["Contexto"] := g.AddEdit("x40 y160 w400 ReadOnly", Cfg["Contexto"])
-    g.AddButton("x452 y158 w123 h28", "Examinar...").OnEvent("Click", (*) => SeleccionarContexto(true))
-    camposNuevos["RecordarContexto"] := g.AddCheckbox("x40 y203 w535 h25", "Cargar este archivo al iniciar")
-    camposNuevos["RecordarContexto"].Value := Cfg["RecordarContexto"]
-    g.AddButton("x40 y240 w150 h28", "Quitar contexto").OnEvent("Click", (*) => QuitarContextoFormulario())
-    g.AddText("x40 y285 w535 h25", "Instrucciones para el asistente")
-    camposNuevos["Instrucciones"] := g.AddEdit("x40 y317 w535 h171 Multi WantTab", Cfg["Instrucciones"])
-    g.AddText("x40 y501 w535 h34", "El contexto solo se envia al hacer una consulta.")
+    g.AddText("x40 y124 w535 h22", "Marca los contextos que quieras combinar; selecciona uno para editarlo.")
+    camposNuevos["ListaContextos"] := g.AddListView("x40 y155 w182 h270 Checked -Multi NoSortHdr", ["Contextos"])
+    camposNuevos["ListaContextos"].ModifyCol(1, 160)
+    camposNuevos["ListaContextos"].OnEvent("ItemSelect", SeleccionarContextoLista)
+    camposNuevos["ListaContextos"].OnEvent("ItemCheck", MarcarContextoLista)
+    g.AddButton("x40 y440 w86 h28", "Nuevo").OnEvent("Click", (*) => NuevoContexto())
+    g.AddButton("x134 y440 w88 h28", "Importar...").OnEvent("Click", (*) => SeleccionarContexto(true))
+    g.AddButton("x40 y479 w182 h28", "Quitar de la lista").OnEvent("Click", (*) => QuitarContextoFormulario())
+    g.AddText("x236 y155 w340 h22", "Nombre")
+    camposNuevos["NombreContexto"] := g.AddEdit("x236 y182 w340 h26 Limit120")
+    g.AddText("x236 y219 w340 h22", "Texto del contexto (editable)")
+    camposNuevos["TextoContexto"] := g.AddEdit("x236 y246 w340 h232 Multi WantTab Limit0")
+    g.AddText("x236 y488 w340 h47", "Pulsa Guardar para aplicar. Solo se enviaran los contextos marcados con texto.")
     tabs.UseTab(4)
-    g.AddText("x42 y134 w520 h245", "Ctrl + clic izquierdo: consultar el texto seleccionado.`n`nCtrl + Espacio: ocultar o recuperar la ultima respuesta.`n`nCtrl + Alt + G: abrir configuracion.`n`nCtrl + Alt + J: minimizar / expandir ajustes.`n`nCtrl + Alt + F: cargar un archivo de contexto.")
+    g.AddText("x40 y129 w535 h26", "Instrucciones generales para el asistente")
+    camposNuevos["Instrucciones"] := g.AddEdit("x40 y166 w535 h328 Multi WantTab Limit0", Cfg["Instrucciones"])
+    g.AddText("x40 y505 w535 h32", "Se aplican junto con los contextos activos. Pulsa Guardar para conservarlas.")
+    tabs.UseTab(5)
+    g.AddText("x42 y134 w520 h245", "Ctrl + clic izquierdo: consultar el texto seleccionado.`n`nCtrl + Espacio: ocultar o recuperar la ultima respuesta.`n`nCtrl + Alt + G: abrir configuracion.`n`nCtrl + Alt + J: minimizar / expandir ajustes.`n`nCtrl + Alt + F: importar archivos a Contextos.")
     g.AddText("x42 y400 w520 h95", "Minimizar los ajustes deja un icono ◇; la consulta sigue funcionando.`n`nLas respuestas no abren esta ventana y no reciben el foco. Los atajos evitan los del mostrador de teclas.")
     tabs.UseTab()
     camposNuevos["Estado"] := g.AddText("x24 y565 w570 h36", UltimoEstado)
@@ -338,6 +359,7 @@ AbrirConfiguracion() {
     g.AddButton("x340 y609 w126 h32 Default", "Guardar").OnEvent("Click", (*) => GuardarFormulario())
     g.AddButton("x478 y609 w116 h32", "Cerrar ajustes").OnEvent("Click", (*) => DescartarConfiguracion())
     Campos := camposNuevos
+    RellenarListaContextos(BorradorContextos.Length ? 1 : 0)
     g.OnEvent("Close", (*) => DescartarConfiguracion())
     g.OnEvent("Escape", MinimizarConfiguracion)
     g.OnEvent("Size", AlCambiarVentanaAjustes)
@@ -348,10 +370,12 @@ AlCambiarVentanaAjustes(gui, estado, ancho, alto) {
         MinimizarConfiguracion()
 }
 DescartarConfiguracion() {
-    global GuiAjustes, Campos, Cerrando
+    global GuiAjustes, Campos, Cerrando, BorradorContextos, IndiceContexto, CargandoContextos
     if !IsSet(Cerrando) || Cerrando
         return
+    CargandoContextos := true
     GuiAjustes.Destroy(), GuiAjustes := 0, Campos := 0
+    BorradorContextos := [], IndiceContexto := 0, CargandoContextos := false
     MostrarIconoGemini()
 }
 MostrarClavesFormulario(ver) {
@@ -364,34 +388,48 @@ ActualizarOpacidadFormulario() {
     Campos["EtiquetaOpacidad"].Text := Campos["Opacidad"].Value "%"
 }
 QuitarContextoFormulario() {
-    global Campos
-    Campos["Contexto"].Text := "", Campos["RecordarContexto"].Value := 0
+    global BorradorContextos, IndiceContexto
+    if (IndiceContexto < 1 || IndiceContexto > BorradorContextos.Length)
+        return
+    indice := IndiceContexto
+    BorradorContextos.RemoveAt(indice)
+    RellenarListaContextos(Min(indice, BorradorContextos.Length))
+    EstadoAjustes("Contexto retirado del borrador. Pulsa Guardar para aplicar o cierra los ajustes para descartar.")
 }
+
 SeleccionarContexto(formulario := false) {
-    global DocContexto, Cfg, Campos
-    ruta := FileSelect(1, , "Selecciona el contexto", "Texto (*.txt; *.md)")
-    if ruta = ""
-        return
-    if formulario {
-        Campos["Contexto"].Text := ruta
-        EstadoAjustes("Contexto seleccionado. Pulsa Guardar para aplicarlo.")
-        return
+    global Campos, BorradorContextos
+    if !formulario {
+        AbrirConfiguracion()
+        Campos["Pestanas"].Choose(3)
     }
-    try DocContexto := FileRead(ruta, "UTF-8")
-    catch {
-        AvisoSutil("No se pudo abrir el archivo de contexto.")
+    GuardarEditorContexto()
+    rutas := FileSelect("M3", , "Importar contextos", "Archivos de texto (*.txt;*.md)")
+    if !(rutas is Array)
         return
+    agregados := 0, errores := 0
+    for ruta in rutas {
+        try {
+            texto := FileRead(ruta, "UTF-8")
+            SplitPath(ruta, &nombre)
+            BorradorContextos.Push(Map("nombre", nombre, "texto", texto, "activo", 1))
+            agregados++
+        } catch {
+            errores++
+        }
     }
-    Cfg["Contexto"] := ruta
-    if IsObject(Campos)
-        Campos["Contexto"].Text := ruta
-    AvisoSutil("Contexto cargado.")
+    if agregados
+        RellenarListaContextos(BorradorContextos.Length)
+    EstadoAjustes("Importados: " agregados ". No leidos: " errores ". Edita y pulsa Guardar; los archivos originales no se modifican.")
 }
+
 LeerFormulario() {
     global Campos, Cfg
     c := Map(), c["Proveedor"] := Campos["Proveedor"].Text
     c["IconoX"] := Cfg["IconoX"], c["IconoY"] := Cfg["IconoY"]
-    for k in ["ModeloGemini", "ModeloOpenAI", "Contexto", "Instrucciones"]
+    c["Contexto"] := Cfg["Contexto"], c["RecordarContexto"] := Cfg["RecordarContexto"]
+    c["Contextos"] := CopiarContextos(Cfg["Contextos"])
+    for k in ["ModeloGemini", "ModeloOpenAI", "Instrucciones"]
         c[k] := Trim(Campos[k].Text)
     for k in ["ModeloGemini", "ModeloOpenAI"]
         if !RegExMatch(c[k], "^[a-zA-Z0-9._-]+$")
@@ -406,7 +444,7 @@ LeerFormulario() {
     if !RegExMatch(c["Color"], "^[0-9A-F]{6}$")
         throw Error("El color debe tener seis caracteres HEX, por ejemplo F2F2F2.")
     c["Opacidad"] := Campos["Opacidad"].Value
-    for k in ["SeguirMouse", "Copiar", "Progreso", "IniciarMinimizado", "RecordarContexto"]
+    for k in ["SeguirMouse", "Copiar", "Progreso", "IniciarMinimizado"]
         c[k] := Campos[k].Value
     return c
 }
@@ -415,13 +453,13 @@ ClavesFormulario() {
     return Map("Gemini", Trim(Campos["ClaveGemini"].Text), "OpenAI", Trim(Campos["ClaveOpenAI"].Text))
 }
 GuardarFormulario() {
-    global Cfg, Claves, DocContexto
+    global Cfg, Claves, BorradorContextos
     try {
-        c := LeerFormulario(), clavesNuevas := ClavesFormulario(), contexto := ""
-        if c["Contexto"] != ""
-            contexto := FileRead(c["Contexto"], "UTF-8")
+        GuardarEditorContexto()
+        c := LeerFormulario(), clavesNuevas := ClavesFormulario()
+        c["Contextos"] := CopiarContextos(BorradorContextos)
         GuardarPreferencias(c, clavesNuevas)
-        Cfg := c, Claves := clavesNuevas, DocContexto := contexto
+        Cfg := c, Claves := clavesNuevas
         AplicarSeguimientoRespuesta()
         EstadoAjustes("Preferencias guardadas. Las respuestas siguen siendo texto flotante.")
     } catch as err {
@@ -473,7 +511,7 @@ ElegirColorRespuesta() {
 }
 
 ConsultarSeleccion() {
-    global Solicitud, Cfg, Claves, DocContexto
+    global Solicitud, Cfg, Claves
     if IsObject(Solicitud)
         return
     copia := ClipboardAll()
@@ -490,10 +528,7 @@ ConsultarSeleccion() {
     } finally {
         A_Clipboard := copia
     }
-    prompt := Cfg["Instrucciones"]
-    if DocContexto != ""
-        prompt .= "`n`nUsa preferentemente este contexto. Si no contiene la respuesta, usa tu conocimiento general.`n--- CONTEXTO ---`n" DocContexto
-    prompt .= "`n`n--- PREGUNTA ---`n" pregunta
+    prompt := ConstruirPromptConsulta(pregunta)
     IniciarSolicitud(prompt, Cfg, Claves, false)
 }
 ProbarConexion() {
@@ -955,4 +990,106 @@ AplicarSeguimientoRespuesta() {
         MouseGetPos(&UltimaX, &UltimaY)
         PosicionarRespuesta(UltimaX, UltimaY)
     }
+}
+
+
+; Biblioteca incluida en la configuracion local, excluida de Git.
+CopiarContextos(lista) {
+    resultado := []
+    if !(lista is Array)
+        return resultado
+    for i, item in lista {
+        if !(item is Map) || !item.Has("texto") || IsObject(item["texto"])
+            continue
+        nombre := item.Has("nombre") && !IsObject(item["nombre"]) ? Trim(String(item["nombre"])) : ""
+        if nombre = ""
+            nombre := "Contexto " i
+        resultado.Push(Map("nombre", nombre, "texto", String(item["texto"]),
+            "activo", item.Has("activo") ? (item["activo"] ? 1 : 0) : 1))
+    }
+    return resultado
+}
+
+GuardarEditorContexto() {
+    global Campos, BorradorContextos, IndiceContexto, CargandoContextos, Cerrando
+    if (Cerrando || CargandoContextos || !IsObject(Campos) || IndiceContexto < 1 || IndiceContexto > BorradorContextos.Length)
+        return
+    nombre := Trim(Campos["NombreContexto"].Text)
+    if nombre = ""
+        nombre := "Contexto " IndiceContexto
+    BorradorContextos[IndiceContexto]["nombre"] := nombre
+    BorradorContextos[IndiceContexto]["texto"] := Campos["TextoContexto"].Text
+    Campos["ListaContextos"].Modify(IndiceContexto, , nombre)
+}
+
+CargarEditorContexto(indice) {
+    global Campos, BorradorContextos, IndiceContexto, CargandoContextos
+    IndiceContexto := indice
+    existe := indice >= 1 && indice <= BorradorContextos.Length
+    Campos["NombreContexto"].Enabled := existe
+    Campos["TextoContexto"].Enabled := existe
+    Campos["NombreContexto"].Text := existe ? BorradorContextos[indice]["nombre"] : ""
+    Campos["TextoContexto"].Text := existe ? BorradorContextos[indice]["texto"] : ""
+}
+
+RellenarListaContextos(seleccion := 0) {
+    global Campos, BorradorContextos, CargandoContextos
+    CargandoContextos := true
+    try {
+        lv := Campos["ListaContextos"]
+        lv.Delete()
+        for item in BorradorContextos
+            lv.Add(item["activo"] ? "Check" : "", item["nombre"])
+        if seleccion > 0
+            lv.Modify(seleccion, "Select Focus Vis")
+        CargarEditorContexto(seleccion)
+    } finally {
+        CargandoContextos := false
+    }
+}
+
+SeleccionarContextoLista(lv, indice, seleccionado) {
+    global CargandoContextos, Cerrando
+    if (!IsSet(Cerrando) || Cerrando || CargandoContextos || !seleccionado)
+        return
+    GuardarEditorContexto()
+    CargarEditorContexto(indice)
+}
+
+MarcarContextoLista(lv, indice, marcado) {
+    global BorradorContextos, CargandoContextos, Cerrando
+    if (!IsSet(Cerrando) || Cerrando || CargandoContextos || indice < 1 || indice > BorradorContextos.Length)
+        return
+    BorradorContextos[indice]["activo"] := marcado ? 1 : 0
+}
+
+NuevoContexto() {
+    global BorradorContextos, Campos
+    GuardarEditorContexto()
+    BorradorContextos.Push(Map("nombre", "Contexto " (BorradorContextos.Length + 1), "texto", "", "activo", 1))
+    RellenarListaContextos(BorradorContextos.Length)
+    Campos["NombreContexto"].Focus()
+    EstadoAjustes("Contexto nuevo. Escribe el texto y pulsa Guardar para aplicarlo.")
+}
+
+CombinarContextos(lista) {
+    resultado := "", numero := 0
+    for item in lista {
+        if (!item["activo"] || Trim(item["texto"]) = "")
+            continue
+        numero++
+        resultado .= (numero = 1 ? "" : "`n`n") "--- CONTEXTO " numero ": " item["nombre"] " ---`n" item["texto"]
+    }
+    return resultado
+}
+
+ConstruirPromptConsulta(pregunta, opciones := 0) {
+    global Cfg
+    if !IsObject(opciones)
+        opciones := Cfg
+    prompt := opciones["Instrucciones"]
+    contexto := CombinarContextos(opciones["Contextos"])
+    if contexto != ""
+        prompt .= "`n`nUsa preferentemente los siguientes contextos. Si no contienen la respuesta, usa tu conocimiento general.`n" contexto
+    return prompt "`n`n--- PREGUNTA ---`n" pregunta
 }
