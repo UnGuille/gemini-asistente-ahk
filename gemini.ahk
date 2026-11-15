@@ -9,6 +9,8 @@ global Cfg := CargarConfiguracion(), Claves := CargarClaves(), DocContexto := ""
 global GuiAjustes := 0, Campos := 0, GuiIcono := 0, GuiRespuesta := 0
 global RespuestaVisible := false, UltimaRespuesta := "", UltimaX := 0, UltimaY := 0
 global Solicitud := 0, Cerrando := false, ColoresElegidos := Buffer(64, 0)
+global RespuestaSigueMouse := false, RespuestaEsFinal := false
+global CursorRespuestaX := "", CursorRespuestaY := ""
 global UltimoEstado := "Listo. Selecciona un proveedor y guarda tus preferencias."
 OnExit(CerrarPrograma)
 ConfigurarBandejaGemini()
@@ -41,7 +43,7 @@ Predeterminados() {
     instrucciones .= "`n4. Pregunta abierta: responde de forma completa, breve y directa."
     return Map("Proveedor", "Gemini", "ModeloGemini", "gemini-3.5-flash-lite", "ModeloOpenAI", "gpt-4.1-mini",
         "Fuente", 8, "Ancho", 400, "Color", "F2F2F2", "Opacidad", 100, "Duracion", 0,
-        "Copiar", 1, "Progreso", 1, "IniciarMinimizado", 1, "Contexto", "", "RecordarContexto", 0, "Instrucciones", instrucciones)
+        "SeguirMouse", 1, "Copiar", 1, "Progreso", 1, "IniciarMinimizado", 1, "Contexto", "", "RecordarContexto", 0, "Instrucciones", instrucciones)
 }
 CargarConfiguracion() {
     global RutaConfig
@@ -59,7 +61,7 @@ CargarConfiguracion() {
         catch
             c[k] := Predeterminados()[k]
     }
-    for k in ["Copiar", "Progreso", "IniciarMinimizado", "RecordarContexto"]
+    for k in ["SeguirMouse", "Copiar", "Progreso", "IniciarMinimizado", "RecordarContexto"]
         c[k] := c[k] ? 1 : 0
     if (c["Proveedor"] != "Gemini" && c["Proveedor"] != "OpenAI")
         c["Proveedor"] := "Gemini"
@@ -220,7 +222,7 @@ AbrirConfiguracion() {
     camposNuevos["Duracion"] := g.AddEdit("x250 y305 w90 Number", Cfg["Duracion"])
     g.AddUpDown("Range0-120", Cfg["Duracion"])
     g.AddText("x360 y309 w215 h24", "0 = hasta Ctrl + Espacio")
-    for k, spec in Map("Copiar", [352,"Copiar respuesta al portapapeles"], "Progreso", [388,"Mostrar ... mientras consulta"], "IniciarMinimizado", [424,"Iniciar con los ajustes minimizados"]) {
+    for k, spec in Map("SeguirMouse", [340,"La respuesta sigue al cursor"], "Copiar", [370,"Copiar respuesta al portapapeles"], "Progreso", [400,"Mostrar ... mientras consulta"], "IniciarMinimizado", [430,"Iniciar con los ajustes minimizados"]) {
         camposNuevos[k] := g.AddCheckbox("x40 y" spec[1] " w530 h26", spec[2])
         camposNuevos[k].Value := Cfg[k]
     }
@@ -312,7 +314,7 @@ LeerFormulario() {
     if !RegExMatch(c["Color"], "^[0-9A-F]{6}$")
         throw Error("El color debe tener seis caracteres HEX, por ejemplo F2F2F2.")
     c["Opacidad"] := Campos["Opacidad"].Value
-    for k in ["Copiar", "Progreso", "IniciarMinimizado", "RecordarContexto"]
+    for k in ["SeguirMouse", "Copiar", "Progreso", "IniciarMinimizado", "RecordarContexto"]
         c[k] := Campos[k].Value
     return c
 }
@@ -328,6 +330,7 @@ GuardarFormulario() {
             contexto := FileRead(c["Contexto"], "UTF-8")
         GuardarPreferencias(c, clavesNuevas)
         Cfg := c, Claves := clavesNuevas, DocContexto := contexto
+        AplicarSeguimientoRespuesta()
         EstadoAjustes("Preferencias guardadas. Las respuestas siguen siendo texto flotante.")
     } catch as err {
         EstadoAjustes("No se guardo: " LimpiarError(err.Message))
@@ -346,7 +349,7 @@ RestablecerApariencia() {
     d := Predeterminados()
     for k in ["Fuente", "Ancho", "Color", "Duracion"]
         Campos[k].Text := d[k]
-    for k in ["Opacidad", "Copiar", "Progreso", "IniciarMinimizado"]
+    for k in ["Opacidad", "SeguirMouse", "Copiar", "Progreso", "IniciarMinimizado"]
         Campos[k].Value := d[k]
     ActualizarOpacidadFormulario()
     EstadoAjustes("Apariencia predeterminada cargada. Pulsa Guardar para aplicarla.")
@@ -517,7 +520,7 @@ RevisarSolicitud() {
         MouseGetPos(&UltimaX, &UltimaY)
         if req.estilo["Copiar"]
             A_Clipboard := respuesta
-        MostrarTextoSutil(respuesta, UltimaX, UltimaY, req.estilo["Duracion"] * 1000, req.estilo)
+        MostrarTextoSutil(respuesta, UltimaX, UltimaY, req.estilo["Duracion"] * 1000, req.estilo, true)
     } catch as err {
         SetTimer(RevisarSolicitud, 0), Solicitud := 0
         mensaje := DescribirErrorRed(err, req.clave)
@@ -558,8 +561,9 @@ LimpiarError(texto, clave := "") {
                 texto := StrReplace(texto, valor, "[clave oculta]")
     return SubStr(texto, 1, 350)
 }
-MostrarTextoSutil(texto, x, y, duracion := 0, estilo := 0) {
+MostrarTextoSutil(texto, x, y, duracion := 0, estilo := 0, esRespuesta := false) {
     global GuiRespuesta, RespuestaVisible, Cfg, Cerrando
+    global RespuestaSigueMouse, RespuestaEsFinal, CursorRespuestaX, CursorRespuestaY
     if !IsSet(Cerrando) || Cerrando
         return
     OcultarRespuesta()
@@ -572,15 +576,15 @@ MostrarTextoSutil(texto, x, y, duracion := 0, estilo := 0) {
     g.AddText("w" estilo["Ancho"] " BackgroundTrans", texto)
     WinSetTransColor("010203 " Round(255 * estilo["Opacidad"] / 100), g)
     g.Show("x" (x + 15) " y" (y + 10) " NoActivate")
-    g.GetPos(&gx, &gy, &gw, &gh)
-    Loop MonitorGetCount() {
-        MonitorGetWorkArea(A_Index, &l, &t, &r, &b)
-        if (x >= l && x < r && y >= t && y < b) {
-            g.Move(Max(l, Min(gx, r - gw)), Max(t, Min(gy, b - gh)))
-            break
-        }
-    }
     RespuestaVisible := true
+    RespuestaEsFinal := esRespuesta
+    RespuestaSigueMouse := estilo.Has("SeguirMouse") ? estilo["SeguirMouse"] : true
+    CursorRespuestaX := "", CursorRespuestaY := ""
+    if RespuestaSigueMouse {
+        SeguirCursorRespuesta()
+        SetTimer(SeguirCursorRespuesta, 16)
+    } else
+        PosicionarRespuesta(x, y)
     if duracion > 0
         SetTimer(OcultarRespuesta, -duracion)
 }
@@ -589,7 +593,9 @@ AvisoSutil(texto, duracion := 3500) {
     MostrarTextoSutil(texto, x, y, duracion)
 }
 OcultarRespuesta() {
-    global GuiRespuesta, RespuestaVisible
+    global GuiRespuesta, RespuestaVisible, RespuestaSigueMouse, RespuestaEsFinal
+    SetTimer(SeguirCursorRespuesta, 0)
+    RespuestaSigueMouse := false, RespuestaEsFinal := false
     SetTimer(OcultarRespuesta, 0)
     if IsSet(GuiRespuesta) && IsObject(GuiRespuesta)
         GuiRespuesta.Destroy()
@@ -602,12 +608,13 @@ AlternarRespuesta() {
     if RespuestaVisible
         OcultarRespuesta()
     else
-        MostrarTextoSutil(UltimaRespuesta, UltimaX, UltimaY, Cfg["Duracion"] * 1000)
+        MostrarTextoSutil(UltimaRespuesta, UltimaX, UltimaY, Cfg["Duracion"] * 1000, Cfg, true)
 }
 CerrarPrograma(*) {
     global Cerrando, Solicitud, GuiAjustes, GuiIcono
     Cerrando := true
     SetTimer(RevisarSolicitud, 0), SetTimer(OcultarRespuesta, 0)
+    SetTimer(SeguirCursorRespuesta, 0)
     if IsObject(Solicitud) {
         try Solicitud.http.Abort()
     }
@@ -792,4 +799,64 @@ DescribirErrorRed(err, clave := "") {
         default: texto := err.Message
     }
     return LimpiarError(texto, clave)
+}
+
+
+; Mover la misma ventana conserva el texto y evita parpadeos o cambios de foco.
+SeguirCursorRespuesta() {
+    global GuiRespuesta, RespuestaVisible, RespuestaSigueMouse, RespuestaEsFinal, Cerrando
+    global CursorRespuestaX, CursorRespuestaY, UltimaX, UltimaY
+    if (!IsSet(Cerrando) || Cerrando || !RespuestaVisible || !RespuestaSigueMouse || !IsObject(GuiRespuesta)) {
+        SetTimer(SeguirCursorRespuesta, 0)
+        return
+    }
+    punto := Buffer(8, 0)
+    if !DllCall("GetCursorPos", "ptr", punto)
+        return
+    x := NumGet(punto, 0, "int"), y := NumGet(punto, 4, "int")
+    if (x = CursorRespuestaX && y = CursorRespuestaY)
+        return
+    PosicionarRespuesta(x, y)
+    CursorRespuestaX := x, CursorRespuestaY := y
+    if RespuestaEsFinal
+        UltimaX := x, UltimaY := y
+}
+
+PosicionarRespuesta(x, y) {
+    global GuiRespuesta
+    if !IsObject(GuiRespuesta)
+        return
+    rc := Buffer(16, 0)
+    DllCall("GetWindowRect", "ptr", GuiRespuesta.Hwnd, "ptr", rc)
+    w := NumGet(rc, 8, "int") - NumGet(rc, 0, "int")
+    h := NumGet(rc, 12, "int") - NumGet(rc, 4, "int")
+    punto := (x & 0xFFFFFFFF) | ((y & 0xFFFFFFFF) << 32)
+    monitor := DllCall("MonitorFromPoint", "int64", punto, "uint", 2, "ptr")
+    info := Buffer(40, 0)
+    NumPut("uint", 40, info)
+    nx := x + 15, ny := y + 10
+    if DllCall("GetMonitorInfoW", "ptr", monitor, "ptr", info) {
+        nx := Max(NumGet(info, 20, "int"), Min(nx, NumGet(info, 28, "int") - w))
+        ny := Max(NumGet(info, 24, "int"), Min(ny, NumGet(info, 32, "int") - h))
+    }
+    DllCall("SetWindowPos", "ptr", GuiRespuesta.Hwnd, "ptr", 0, "int", nx, "int", ny,
+        "int", 0, "int", 0, "uint", 0x15) ; NOSIZE | NOZORDER | NOACTIVATE
+}
+
+AplicarSeguimientoRespuesta() {
+    global Cfg, RespuestaVisible, RespuestaSigueMouse, CursorRespuestaX, CursorRespuestaY
+    global RespuestaEsFinal, UltimaX, UltimaY
+    if !RespuestaVisible
+        return
+    RespuestaSigueMouse := Cfg["SeguirMouse"]
+    SetTimer(SeguirCursorRespuesta, 0)
+    if RespuestaSigueMouse {
+        CursorRespuestaX := "", CursorRespuestaY := ""
+        SeguirCursorRespuesta()
+        SetTimer(SeguirCursorRespuesta, 16)
+    } else if RespuestaEsFinal {
+        ; Al desactivarlo, dejarla exactamente donde estaba el cursor.
+        MouseGetPos(&UltimaX, &UltimaY)
+        PosicionarRespuesta(UltimaX, UltimaY)
+    }
 }

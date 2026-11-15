@@ -29,6 +29,14 @@ Los valores iniciales mantienen la apariencia del script original: letra de **8 
 
 **Guardar** aplica y conserva los cambios. Minimizar conserva lo que hayas escrito en el formulario, pero no lo aplica. **Cerrar ajustes** descarta los cambios pendientes y deja el icono IA; no cierra el programa. Usa **Salir** en la bandeja para terminarlo.
 
+## Respuesta junto al cursor
+
+Por defecto, la respuesta de **Ctrl + clic** sigue al mouse mientras está visible, con una pequeña separación para permitir seguir haciendo clic normalmente. Se mantiene dentro del área de trabajo del monitor por el que pasa el cursor.
+
+En **Configuración → Respuesta**, desactiva **La respuesta sigue al cursor** y pulsa **Guardar** para dejarla fija, como en el comportamiento anterior: aparece donde estaba el mouse al recibirse la respuesta. Si ya hay una respuesta visible, desactivar el seguimiento la deja junto a la posición actual del cursor. La preferencia queda guardada.
+
+**Ctrl + Espacio** oculta o recupera la respuesta respetando el modo elegido. La vista previa también permite comprobar el seguimiento. Al ocultar la respuesta o cerrar el programa se detiene el temporizador de movimiento.
+
 ## Atajos
 
 | Atajo | Acción |
