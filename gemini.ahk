@@ -197,7 +197,8 @@ AbrirConfiguracion() {
     ver.OnEvent("Click", (*) => MostrarClavesFormulario(ver.Value))
     g.AddLink("x40 y413 w530 h24", '<a href="https://aistudio.google.com/apikey">Crear clave Gemini</a>     <a href="https://platform.openai.com/api-keys">Crear clave OpenAI</a>')
     g.AddButton("x40 y458 w150 h30", "Probar conexion").OnEvent("Click", (*) => ProbarConexion())
-    g.AddText("x208 y458 w365 h43", "La prueba envia una solicitud breve al proveedor elegido.")
+    g.AddButton("x208 y458 w110 h30", "Cancelar").OnEvent("Click", (*) => CancelarSolicitud())
+    g.AddText("x332 y458 w243 h43", "Valida clave y modelo sin generar texto.")
     g.AddText("x40 y509 w535 h26", "Las claves se guardan cifradas para tu usuario de Windows.")
     tabs.UseTab(2)
     g.AddText("x40 y130 w180 h24", "Tamano de letra (pt)")
@@ -398,7 +399,7 @@ ConsultarSeleccion() {
 ProbarConexion() {
     try {
         c := LeerFormulario()
-        IniciarSolicitud("Responde unicamente OK.", c, ClavesFormulario(), true)
+        IniciarSolicitud("", c, ClavesFormulario(), true)
     } catch as err {
         EstadoAjustes(err.Message)
     }
@@ -420,7 +421,7 @@ IniciarSolicitud(prompt, c, claves, prueba := false) {
     modelo := c[proveedor = "Gemini" ? "ModeloGemini" : "ModeloOpenAI"]
     try {
         http := ComObject("WinHttp.WinHttpRequest.5.1")
-        http.SetTimeouts(10000, 10000, 20000, 60000)
+        http.SetTimeouts(10000, 15000, 30000, 120000)
         if proveedor = "Gemini" {
             url := "https://generativelanguage.googleapis.com/v1beta/models/" modelo ":generateContent"
             cuerpo := '{"contents":[{"parts":[{"text":' JsonTexto(prompt) '}]}]}'
@@ -428,11 +429,21 @@ IniciarSolicitud(prompt, c, claves, prueba := false) {
             url := "https://api.openai.com/v1/responses"
             cuerpo := '{"model":' JsonTexto(modelo) ',"input":' JsonTexto(prompt) ',"store":false}'
         }
-        http.Open("POST", url, true)
+        if prueba {
+            url := proveedor = "Gemini"
+                ? "https://generativelanguage.googleapis.com/v1beta/models/" modelo
+                : "https://api.openai.com/v1/models/" modelo
+        }
+        ; VT_BOOL explicito para que el objeto COM abra siempre en modo asincrono.
+        http.Open(prueba ? "GET" : "POST", url, ComValue(0xB, -1))
         http.SetRequestHeader("Content-Type", "application/json; charset=utf-8")
         http.SetRequestHeader(proveedor = "Gemini" ? "x-goog-api-key" : "Authorization", proveedor = "Gemini" ? clave : "Bearer " clave)
-        Solicitud := {http: http, proveedor: proveedor, prueba: prueba, inicio: A_TickCount, estilo: c.Clone(), clave: clave}
-        http.Send(cuerpo)
+        Solicitud := {http: http, proveedor: proveedor, prueba: prueba, inicio: A_TickCount,
+            estilo: c.Clone(), clave: clave, ultimoEstado: -1}
+        if prueba
+            http.Send()
+        else
+            http.Send(cuerpo)
         SetTimer(RevisarSolicitud, 100)
         if prueba
             EstadoAjustes("Probando conexion con " proveedor "...")
@@ -440,7 +451,7 @@ IniciarSolicitud(prompt, c, claves, prueba := false) {
             AvisoSutil("...", 5000)
     } catch as err {
         Solicitud := 0
-        texto := "No se pudo iniciar la consulta: " LimpiarError(err.Message, clave)
+        texto := DescribirErrorRed(err, clave)
         if prueba
             EstadoAjustes(texto)
         else
@@ -453,24 +464,39 @@ RevisarSolicitud() {
         return
     req := Solicitud
     try {
-        if A_TickCount - req.inicio > 90000 {
+        segundos := Floor((A_TickCount - req.inicio) / 1000)
+        if segundos >= 150 {
             req.http.Abort()
-            throw Error("La consulta excedio el tiempo de espera.")
+            throw Error("Sin respuesta de " req.proveedor " tras 150 s. Revisa la conexion a su API, proxy/VPN o firewall; todavia no se ha confirmado un problema de clave o cuota.")
         }
-        if !req.http.WaitForResponse(0)
+        ; Una espera de cero devuelve false mientras la respuesta sigue pendiente.
+        if !req.http.WaitForResponse(0) {
+            if req.prueba && segundos != req.ultimoEstado {
+                req.ultimoEstado := segundos
+                EstadoAjustes("Esperando a " req.proveedor "... " segundos " s. Puedes cancelar la prueba.")
+            }
             return
+        }
         status := req.http.Status
-        datos := JsonLeer(req.http.ResponseText)
+        if !status
+            throw Error("No se recibio una respuesta HTTP del proveedor. Revisa la conexion, proxy/VPN o firewall.")
+        datos := 0
+        try datos := JsonLeer(req.http.ResponseText)
         if status < 200 || status >= 300 {
-            mensaje := IsObject(datos) && datos.Has("error") && IsObject(datos["error"]) && datos["error"].Has("message") ? datos["error"]["message"] : "Revisa la clave, el modelo y la cuota del proveedor."
-            throw Error("HTTP " status ": " mensaje)
+            mensaje := IsObject(datos) && datos.Has("error") && IsObject(datos["error"]) && datos["error"].Has("message") ? datos["error"]["message"] : "El proveedor rechazo la solicitud."
+            throw Error(DescribirEstadoHTTP(status, mensaje))
+        }
+        if !IsObject(datos)
+            throw Error("El proveedor respondio HTTP " status ", pero el contenido no es JSON valido.")
+        if req.prueba {
+            if (!datos.Has("name") && !datos.Has("id"))
+                throw Error("El proveedor respondio, pero no devolvio los metadatos del modelo.")
+            SetTimer(RevisarSolicitud, 0), Solicitud := 0
+            EstadoAjustes("Clave y modelo confirmados con " req.proveedor ". La cuota de generacion se comprueba al consultar.")
+            return
         }
         respuesta := ExtraerRespuesta(datos, req.proveedor)
         SetTimer(RevisarSolicitud, 0), Solicitud := 0
-        if req.prueba {
-            EstadoAjustes("Conexion correcta con " req.proveedor ".")
-            return
-        }
         UltimaRespuesta := respuesta
         MouseGetPos(&UltimaX, &UltimaY)
         if req.estilo["Copiar"]
@@ -478,7 +504,7 @@ RevisarSolicitud() {
         MostrarTextoSutil(respuesta, UltimaX, UltimaY, req.estilo["Duracion"] * 1000, req.estilo)
     } catch as err {
         SetTimer(RevisarSolicitud, 0), Solicitud := 0
-        mensaje := LimpiarError(err.Message, req.clave)
+        mensaje := DescribirErrorRed(err, req.clave)
         if req.prueba
             EstadoAjustes("Fallo de conexion: " mensaje)
         else
@@ -710,4 +736,46 @@ class LectorJsonGemini {
         }
         throw Error("Cadena JSON sin cierre.")
     }
+}
+
+
+CancelarSolicitud() {
+    global Solicitud
+    if !IsObject(Solicitud)
+        return
+    req := Solicitud
+    SetTimer(RevisarSolicitud, 0)
+    Solicitud := 0
+    try req.http.Abort()
+    if req.prueba
+        EstadoAjustes("Prueba cancelada. Puedes revisar la conexion y volver a probar.")
+    else
+        AvisoSutil("Consulta cancelada.")
+}
+
+DescribirEstadoHTTP(status, mensaje) {
+    switch status {
+        case 400: causa := "Solicitud o clave no aceptada"
+        case 401: causa := "Autenticacion no aceptada; revisa la clave del proveedor"
+        case 402: causa := "El proveedor indica un requisito de facturacion"
+        case 403: causa := "Acceso denegado; revisa permisos, restricciones de la clave o region"
+        case 404: causa := "Modelo o recurso no disponible; revisa el nombre del modelo"
+        case 429: causa := "Limite de solicitudes o cuota del proveedor alcanzado"
+        case 500, 502, 503, 504: causa := "Error temporal del proveedor"
+        default: causa := "Solicitud rechazada por el proveedor"
+    }
+    return "HTTP " status " - " causa ". " mensaje
+}
+
+DescribirErrorRed(err, clave := "") {
+    numero := 0
+    try numero := err.Number & 0xFFFF
+    switch numero {
+        case 12002: texto := "Tiempo de espera agotado (0x80072EE2). No se confirmo si la clave es valida. Revisa la conexion a la API, proxy/VPN o firewall."
+        case 12007: texto := "No se pudo resolver el nombre del servidor. Revisa DNS y la conexion a Internet."
+        case 12029, 12030, 12031: texto := "No se pudo conectar con la API o se interrumpio la conexion. Revisa red, proxy/VPN o firewall."
+        case 12037, 12038, 12045, 12175: texto := "No se pudo establecer una conexion HTTPS segura. Revisa fecha/hora del equipo, certificados o inspeccion HTTPS de la red."
+        default: texto := err.Message
+    }
+    return LimpiarError(texto, clave)
 }

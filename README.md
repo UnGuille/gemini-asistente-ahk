@@ -1,4 +1,4 @@
-# Asistente de selección · Gemini / OpenAI
+﻿# Asistente de selección · Gemini / OpenAI
 
 Script para **AutoHotkey v2 en Windows**. Consulta texto seleccionado con **Ctrl + clic izquierdo** y presenta la respuesta como texto flotante pequeño, sin fondo visible, sin ventana de chat y sin cambiar el foco.
 
@@ -9,14 +9,14 @@ La interfaz visual está dedicada a la configuración. Al minimizarla queda un p
 1. Instala [AutoHotkey v2](https://www.autohotkey.com/).
 2. Descarga `gemini.ahk` en una carpeta donde puedas guardar archivos y ejecútalo.
 3. En **Conexión**, elige **Gemini** u **OpenAI**, introduce tu propia clave y revisa el modelo.
-4. Pulsa **Guardar**. Puedes usar **Probar conexión** para enviar una petición breve al proveedor seleccionado.
+4. Pulsa **Guardar**. Puedes usar **Probar conexión** para validar la clave y el acceso al modelo mediante una consulta de metadatos, sin generar texto.
 5. Minimiza la configuración con **−** en la esquina superior derecha o con el botón **Minimizar**. Haz clic en el icono **IA** para volver a abrirla.
 
-Cada proveedor usa su propia clave y el acceso que tenga habilitado esa cuenta. La prueba de conexión y las consultas realizan solicitudes a su API.
+Cada proveedor usa su propia clave y el acceso que tenga habilitado esa cuenta. La prueba de conexión consulta metadatos; las consultas de texto sí generan respuestas. La prueba no confirma la cuota de generación.
 
 ## Configuración
 
-- **Conexión:** proveedor activo, claves independientes de Gemini y OpenAI, modelos editables, claves ocultas por defecto y prueba de conexión.
+- **Conexión:** proveedor activo, claves independientes de Gemini y OpenAI, modelos editables, claves ocultas por defecto y prueba de clave/modelo sin generación de texto.
 - **Respuesta:** tamaño de letra de 6 a 24 pt, ancho de 240 a 800, color con selector de Windows o código HEX, opacidad del 20 al 100 % y duración de 0 a 120 segundos. Con duración `0`, la respuesta permanece hasta ocultarla manualmente.
 - **Vista previa:** muestra un texto de ejemplo durante tres segundos, sin llamar a ninguna API. Restablecer apariencia carga los valores predeterminados en el formulario; pulsa Guardar para aplicarlos.
 - **Contexto:** archivo `.txt` o `.md` opcional, carga al iniciar e instrucciones editables para el asistente. El contexto se envía al proveedor elegido junto con la consulta.
@@ -69,3 +69,19 @@ git diff --cached --stat
 git commit -m "Actualizar configuración y funcionamiento del asistente"
 git push
 ```
+
+
+## Si la conexión falla
+
+**Probar conexión** consulta los metadatos del modelo con tu clave (`GET`), sin enviar preguntas ni generar respuestas. Un resultado correcto confirma el acceso a esos metadatos; la cuota y la disponibilidad de generación se comprueban al consultar texto.
+
+Las consultas normales siguen siendo asíncronas. El programa usa `VT_BOOL` explícito al abrir la conexión COM, permite hasta 120 segundos para recibir datos y aplica un límite total de 150 segundos. La prueba muestra el tiempo transcurrido y tiene un botón **Cancelar**.
+
+- **Tiempo agotado / 0x80072EE2:** no se obtuvo respuesta a tiempo; por sí solo no confirma que la clave o el saldo sean incorrectos. Revisa conexión al servidor de la API, proxy/VPN o firewall.
+- **HTTP 400/401:** revisa el mensaje del proveedor y la clave seleccionada.
+- **HTTP 403:** revisa permisos, restricciones o disponibilidad regional.
+- **HTTP 404:** revisa el identificador del modelo.
+- **HTTP 429:** revisa los límites o la cuota del proveedor.
+- **HTTP 5xx:** el proveedor devolvió un error temporal.
+
+El diagnóstico conserva el código HTTP y un mensaje breve del proveedor, sin mostrar las claves. No cambia automáticamente el modelo ni la facturación.
