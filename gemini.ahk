@@ -7,6 +7,7 @@ CoordMode "Mouse", "Screen"
 global RutaConfig := A_ScriptDir "\gemini-config.json", RutaClaves := A_ScriptDir "\gemini-credentials.dat"
 global Cfg := CargarConfiguracion(), Claves := CargarClaves(), DocContexto := ""
 global GuiAjustes := 0, Campos := 0, GuiIcono := 0, GuiRespuesta := 0
+global HwndIconoGemini := 0, IconoAlfaActual := 0
 global RespuestaVisible := false, UltimaRespuesta := "", UltimaX := 0, UltimaY := 0
 global Solicitud := 0, Cerrando := false, ColoresElegidos := Buffer(64, 0)
 global RespuestaSigueMouse := false, RespuestaEsFinal := false
@@ -43,7 +44,7 @@ Predeterminados() {
     instrucciones .= "`n4. Pregunta abierta: responde de forma completa, breve y directa."
     return Map("Proveedor", "Gemini", "ModeloGemini", "gemini-3.5-flash-lite", "ModeloOpenAI", "gpt-4.1-mini",
         "Fuente", 8, "Ancho", 400, "Color", "F2F2F2", "Opacidad", 100, "Duracion", 0,
-        "SeguirMouse", 1, "Copiar", 1, "Progreso", 1, "IniciarMinimizado", 1, "Contexto", "", "RecordarContexto", 0, "Instrucciones", instrucciones)
+        "IconoX", "", "IconoY", "", "SeguirMouse", 1, "Copiar", 1, "Progreso", 1, "IniciarMinimizado", 1, "Contexto", "", "RecordarContexto", 0, "Instrucciones", instrucciones)
 }
 CargarConfiguracion() {
     global RutaConfig
@@ -136,21 +137,110 @@ ConfigurarBandejaGemini() {
     A_IconTip := "Gemini / OpenAI - asistente de seleccion"
 }
 CrearIconoGemini() {
-    global GuiIcono
-    GuiIcono := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000", "Abrir configuracion del asistente")
-    GuiIcono.BackColor := "243247", GuiIcono.MarginX := 0, GuiIcono.MarginY := 0
-    GuiIcono.SetFont("s14 bold cDBEAFE", "Segoe UI")
-    GuiIcono.AddText("x0 y0 w40 h36 Center +0x200 +0x100", "IA").OnEvent("Click", (*) => AbrirConfiguracion())
+    global GuiIcono, HwndIconoGemini, IconoAlfaActual
+    tam := TamIconoGemini()
+    GuiIcono := Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000", "Abrir configuracion del asistente")
+    HwndIconoGemini := GuiIcono.Hwnd
+    GuiIcono.BackColor := "30343B", GuiIcono.MarginX := 0, GuiIcono.MarginY := 0
+    GuiIcono.SetFont("s" Max(8, Round(12 * 96 / A_ScreenDPI * tam / 24)) " cCED3DA", "Segoe UI Symbol")
+    GuiIcono.AddText(Format("x0 y0 w{} h{} Center +0x200 +0x100", tam, tam), "◇")
     GuiIcono.OnEvent("ContextMenu", (*) => AbrirConfiguracion())
+    WinSetRegion("0-0 w" tam " h" tam " E", GuiIcono)
+    WinSetTransparent(105, GuiIcono)
+    IconoAlfaActual := 105
+    OnMessage(0x0201, PulsarIconoGemini)
 }
+
+TamIconoGemini() {
+    return Max(20, Round(24 * A_ScreenDPI / 96))
+}
+
 MostrarIconoGemini() {
-    global GuiIcono, Cerrando
+    global GuiIcono, Cerrando, Cfg
     if !IsSet(Cerrando) || Cerrando || !IsObject(GuiIcono)
         return
-    MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
-    x := Round(r - 56 * A_ScreenDPI / 96), y := Round(t + 16 * A_ScreenDPI / 96)
-    GuiIcono.Show("x" x " y" y " w40 h36 NoActivate")
+    tam := TamIconoGemini()
+    if (IsNumber(Cfg["IconoX"]) && IsNumber(Cfg["IconoY"])) {
+        x := Integer(Cfg["IconoX"]), y := Integer(Cfg["IconoY"])
+    } else {
+        MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
+        x := r - tam, y := Round(t + (b - t - tam) / 2)
+    }
+    LimitarIconoGemini(&x, &y, tam)
+    GuiIcono.Show(Format("x{} y{} w{} h{} NoActivate", x, y, tam, tam))
+    SetTimer(AspectoIconoGemini, 100)
 }
+
+LimitarIconoGemini(&x, &y, tam) {
+    punto := ((x + tam // 2) & 0xFFFFFFFF) | (((y + tam // 2) & 0xFFFFFFFF) << 32)
+    monitor := DllCall("MonitorFromPoint", "int64", punto, "uint", 2, "ptr")
+    info := Buffer(40, 0)
+    NumPut("uint", 40, info)
+    if DllCall("GetMonitorInfoW", "ptr", monitor, "ptr", info) {
+        x := Max(NumGet(info, 20, "int"), Min(x, NumGet(info, 28, "int") - tam))
+        y := Max(NumGet(info, 24, "int"), Min(y, NumGet(info, 32, "int") - tam))
+    }
+}
+
+PulsarIconoGemini(wParam, lParam, msg, hwnd) {
+    global GuiIcono, HwndIconoGemini, Cerrando
+    if (!IsSet(Cerrando) || Cerrando || !IsSet(HwndIconoGemini) || !HwndIconoGemini)
+        return
+    if (hwnd != HwndIconoGemini && DllCall("GetAncestor", "ptr", hwnd, "uint", 2, "ptr") != HwndIconoGemini)
+        return
+    GuiIcono.GetPos(&antesX, &antesY)
+    punto := Buffer(8, 0)
+    DllCall("GetCursorPos", "ptr", punto)
+    coords := (NumGet(punto, 0, "int") & 0xFFFF) | ((NumGet(punto, 4, "int") & 0xFFFF) << 16)
+    DllCall("ReleaseCapture")
+    ; El bucle nativo distingue un clic de un arrastre y termina al soltar.
+    DllCall("SendMessageW", "ptr", HwndIconoGemini, "uint", 0xA1, "uptr", 2, "ptr", coords, "ptr")
+    if Cerrando || !IsObject(GuiIcono)
+        return 0
+    GuiIcono.GetPos(&x, &y)
+    if (Abs(x - antesX) + Abs(y - antesY) >= Max(4, Round(4 * A_ScreenDPI / 96)))
+        GuardarPosicionIconoGemini()
+    else
+        SetTimer(AbrirConfiguracion, -1)
+    return 0
+}
+
+GuardarPosicionIconoGemini() {
+    global GuiIcono, Cfg, RutaConfig
+    GuiIcono.GetPos(&x, &y)
+    tam := TamIconoGemini()
+    LimitarIconoGemini(&x, &y, tam)
+    GuiIcono.Show(Format("x{} y{} w{} h{} NoActivate", x, y, tam, tam))
+    Cfg["IconoX"] := x, Cfg["IconoY"] := y
+    try {
+        f := FileOpen(RutaConfig ".tmp", "w", "UTF-8-RAW")
+        f.Write(JsonEscribir(Cfg)), f.Close()
+        FileMove(RutaConfig ".tmp", RutaConfig, 1)
+    } catch as err {
+        EstadoAjustes("Posicion cambiada, pero no pudo guardarse: " LimpiarError(err.Message))
+    }
+}
+
+AspectoIconoGemini() {
+    global Cerrando, HwndIconoGemini, GuiIcono, IconoAlfaActual
+    if (!IsSet(Cerrando) || Cerrando || !IsSet(HwndIconoGemini) || !HwndIconoGemini
+        || !DllCall("IsWindowVisible", "ptr", HwndIconoGemini)) {
+        SetTimer(AspectoIconoGemini, 0)
+        return
+    }
+    punto := Buffer(8, 0), rc := Buffer(16, 0)
+    DllCall("GetCursorPos", "ptr", punto)
+    DllCall("GetWindowRect", "ptr", HwndIconoGemini, "ptr", rc)
+    x := NumGet(punto, 0, "int"), y := NumGet(punto, 4, "int")
+    dentro := (x >= NumGet(rc, 0, "int") && x < NumGet(rc, 8, "int")
+        && y >= NumGet(rc, 4, "int") && y < NumGet(rc, 12, "int"))
+    alfa := dentro ? 215 : 105
+    if alfa != IconoAlfaActual {
+        WinSetTransparent(alfa, GuiIcono)
+        IconoAlfaActual := alfa
+    }
+}
+
 MinimizarConfiguracion(*) {
     global GuiAjustes, Cerrando
     if !IsSet(Cerrando) || Cerrando
@@ -171,6 +261,7 @@ AbrirConfiguracion() {
     global GuiAjustes, Campos, GuiIcono, Cfg, Claves, Cerrando, UltimoEstado
     if !IsSet(Cerrando) || Cerrando
         return
+    SetTimer(AspectoIconoGemini, 0)
     GuiIcono.Hide()
     if IsObject(GuiAjustes) {
         GuiAjustes.Show("Restore")
@@ -240,7 +331,7 @@ AbrirConfiguracion() {
     g.AddText("x40 y501 w535 h34", "El contexto solo se envia al hacer una consulta.")
     tabs.UseTab(4)
     g.AddText("x42 y134 w520 h245", "Ctrl + clic izquierdo: consultar el texto seleccionado.`n`nCtrl + Espacio: ocultar o recuperar la ultima respuesta.`n`nCtrl + Alt + G: abrir configuracion.`n`nCtrl + Alt + J: minimizar / expandir ajustes.`n`nCtrl + Alt + F: cargar un archivo de contexto.")
-    g.AddText("x42 y400 w520 h95", "Minimizar los ajustes deja un icono IA; la consulta sigue funcionando.`n`nLas respuestas no abren esta ventana y no reciben el foco. Los atajos evitan los del mostrador de teclas.")
+    g.AddText("x42 y400 w520 h95", "Minimizar los ajustes deja un icono ◇; la consulta sigue funcionando.`n`nLas respuestas no abren esta ventana y no reciben el foco. Los atajos evitan los del mostrador de teclas.")
     tabs.UseTab()
     camposNuevos["Estado"] := g.AddText("x24 y565 w570 h36", UltimoEstado)
     g.AddButton("x24 y609 w150 h32", "Minimizar").OnEvent("Click", MinimizarConfiguracion)
@@ -297,8 +388,9 @@ SeleccionarContexto(formulario := false) {
     AvisoSutil("Contexto cargado.")
 }
 LeerFormulario() {
-    global Campos
+    global Campos, Cfg
     c := Map(), c["Proveedor"] := Campos["Proveedor"].Text
+    c["IconoX"] := Cfg["IconoX"], c["IconoY"] := Cfg["IconoY"]
     for k in ["ModeloGemini", "ModeloOpenAI", "Contexto", "Instrucciones"]
         c[k] := Trim(Campos[k].Text)
     for k in ["ModeloGemini", "ModeloOpenAI"]
@@ -611,8 +703,12 @@ AlternarRespuesta() {
         MostrarTextoSutil(UltimaRespuesta, UltimaX, UltimaY, Cfg["Duracion"] * 1000, Cfg, true)
 }
 CerrarPrograma(*) {
-    global Cerrando, Solicitud, GuiAjustes, GuiIcono
+    global Cerrando, Solicitud, GuiAjustes, GuiIcono, HwndIconoGemini
     Cerrando := true
+    HwndIconoGemini := 0
+    OnMessage(0x0201, PulsarIconoGemini, 0)
+    SetTimer(AspectoIconoGemini, 0)
+    SetTimer(AbrirConfiguracion, 0)
     SetTimer(RevisarSolicitud, 0), SetTimer(OcultarRespuesta, 0)
     SetTimer(SeguirCursorRespuesta, 0)
     if IsObject(Solicitud) {

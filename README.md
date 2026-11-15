@@ -2,7 +2,7 @@
 
 Script para **AutoHotkey v2 en Windows**. Consulta texto seleccionado con **Ctrl + clic izquierdo** y presenta la respuesta como texto flotante pequeño, sin fondo visible, sin ventana de chat y sin cambiar el foco.
 
-La interfaz visual está dedicada a la configuración. Al minimizarla queda un pequeño icono **IA** para abrirla de nuevo; las consultas siguen funcionando.
+La interfaz visual está dedicada a la configuración. Al minimizarla queda un pequeño icono **◇** para abrirla de nuevo; las consultas siguen funcionando.
 
 ## Primer inicio
 
@@ -11,9 +11,19 @@ La interfaz visual está dedicada a la configuración. Al minimizarla queda un p
 3. En **Conexión**, elige **Gemini** u **OpenAI**, introduce tu propia clave y revisa el modelo.
 4. Pulsa **Guardar**. Puedes usar **Probar conexión** para validar la clave y el acceso al modelo mediante una consulta de metadatos, sin generar texto.
 5. Usa **Probar respuesta** para enviar una petición mínima de generación y comprobar que llega texto. Esta prueba usa la API de generación y su cuota. No envía tu contexto ni tus instrucciones personales.
-6. Minimiza la configuración con **−** en la esquina superior derecha o con el botón **Minimizar**. Haz clic en el icono **IA** para volver a abrirla.
+6. Minimiza la configuración con **−** en la esquina superior derecha o con el botón **Minimizar**. Haz clic en el icono **◇** para volver a abrirla.
 
 Cada proveedor usa su propia clave y el acceso que tenga habilitado esa cuenta. La prueba de conexión consulta metadatos; las consultas de texto sí generan respuestas. La prueba no confirma la cuota de generación.
+
+## Icono discreto y móvil
+
+Al minimizar queda un pequeño **◇**, circular y semitransparente, sin texto. Por defecto aparece pegado al borde derecho de la pantalla. Al pasar el cursor por encima se vuelve más visible.
+
+- **Clic:** abrir ajustes.
+- **Arrastrar con el botón izquierdo:** moverlo a cualquier lugar, sin abrir los ajustes al soltar.
+- **Clic derecho:** abrir ajustes.
+
+La posición se guarda automáticamente y se conserva al minimizar de nuevo o reiniciar. El icono se mantiene dentro del área de trabajo de un monitor para que pueda recuperarse si cambia la disposición de pantallas. La posición del icono se guarda por separado de los cambios pendientes del formulario.
 
 ## Configuración
 
@@ -27,7 +37,7 @@ Puedes activar o desactivar la copia automática de la respuesta al portapapeles
 
 Los valores iniciales mantienen la apariencia del script original: letra de **8 pt**, color **F2F2F2**, ancho **400**, fondo transparente y duración indefinida. Ajusta el color o la opacidad y usa Vista previa para adaptarlos al fondo de tu pantalla.
 
-**Guardar** aplica y conserva los cambios. Minimizar conserva lo que hayas escrito en el formulario, pero no lo aplica. **Cerrar ajustes** descarta los cambios pendientes y deja el icono IA; no cierra el programa. Usa **Salir** en la bandeja para terminarlo.
+**Guardar** aplica y conserva los cambios. Minimizar conserva lo que hayas escrito en el formulario, pero no lo aplica. **Cerrar ajustes** descarta los cambios pendientes y deja el icono ◇; no cierra el programa. Usa **Salir** en la bandeja para terminarlo.
 
 ## Respuesta junto al cursor
 
